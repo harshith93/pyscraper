@@ -10,14 +10,17 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
 from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
 import time
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 
 class Scraper(object):
     """docstring for Scraper."""
-    def __init__(self, city):
+    def __init__(self):
         super(Scraper, self).__init__()
-        city = city.replace(' ', '%20')
-        self.url = "https://www.flickr.com/search/?text=" + city
-        print(self.url)
+        # city = city.replace(' ', '%20')
+        # self.url = "https://www.flickr.com/search/?text=" + city
+        # print(self.url)
 
     def crawl(self):
         http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
@@ -49,78 +52,77 @@ class Scraper(object):
 
     def browser_scroll(self, browser):
         SCROLL_PAUSE_TIME = 0.75
-
         # Get scroll height
         last_height = browser.execute_script("return document.body.scrollHeight")
-
+        print(last_height)
         while True:
             # Scroll down to bottom
             browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            print('Bhargava')
-
             # Wait to load page
             time.sleep(SCROLL_PAUSE_TIME)
-            print("Slept")
             # Calculate new scroll height and compare with last scroll height
             new_height = browser.execute_script("return document.body.scrollHeight")
             print(new_height)
-            print(last_height)
             if new_height == last_height:
-                print('Harshith')
-                # browser.find_element_by_css_selector('.infinite-scroll-load-more .alt').send_keys(Keys.SPACE)
                 try:
                     browser.find_element_by_css_selector('.infinite-scroll-load-more .alt').send_keys(Keys.SPACE)
                     time.sleep(SCROLL_PAUSE_TIME)
                     browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    print(browser.execute_script("return document.body.scrollHeight"))
-                    print("clicked")
                     return self.browser_scroll(browser)
-                except Exception as e:
-                    print(e)
                 finally:
-                    print('FInally')
                     break
-
             last_height = new_height
 
 
-    def sel_scrape(self):
-        #browser = webdriver.PhantomJS(executable_path="/Users/harshith/Public/Projects/pyscraper/node_modules/phantomjs-prebuilt/bin/phantomjs")
+    def sel_scrape(self, city):
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        browser = webdriver.Chrome()
+        browser.get("https://www.flickr.com/search/?text=" + city)
+        self.browser_scroll(browser)
+        elements = browser.find_elements_by_css_selector('.photo-list-photo-interaction .overlay')
+        for element in elements:
+            print(element.get_attribute("href"))
+
+
+def get_link(element):
+    return element.get_attribute("href")
+
+
+class ImageInfo(object):
+    """docstring for ImageInfo."""
+    def __init__(self):
+        super(ImageInfo, self).__init__()
+
+    def grab_info(self, element):
+        url = element.get_attribute("href")
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         browser = webdriver.Chrome(chrome_options=chrome_options)
-        browser.get(self.url)
-        # SCROLL_PAUSE_TIME = 0.5
-        #
-        # # Get scroll height
-        # last_height = browser.execute_script("return document.body.scrollHeight")
-        #
-        # while True:
-        #     # Scroll down to bottom
-        #     browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        #
-        #     # Wait to load page
-        #     time.sleep(SCROLL_PAUSE_TIME)
-        #
-        #     # Calculate new scroll height and compare with last scroll height
-        #     new_height = browser.execute_script("return document.body.scrollHeight")
-        #     if new_height == last_height:
-        #
-        #         break
-        #     last_height = new_height
-        #print(browser.page_source)
-        #print(browser.find_elements_by_class_name('overlay'))
-        self.browser_scroll(browser)
-        elements = browser.find_elements_by_css_selector('.photo-list-photo-interaction .overlay')
-        print(len(elements))
-        # for element in elements:
-        #     print(element.get_attribute('href'))
+        browser.get(url)
+        image = browser.find_element_by_class_name('main-photo')
+        print(image.get_attribute('src'))
 
 
-start = time.clock()
-scraped = Scraper("Rome")
-scraped.find_image_num()
-scraped.sel_scrape()
-print(time.clock() - start)
+cities = input("Please enter the names of the cities separated by comma: ")
+#cities = [city for city in cities.split(',')]
+#cities = [Scraper("%s" %(city)) for city in cities]
+print("Processing...")
 
+NUM_WORKERS = 4
+start_time = time.time()
+futures = None
+with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+    futures = {executor.submit(Scraper().sel_scrape, city.replace(' ', '%20')) for city in cities.split(',')}
+    concurrent.futures.wait(futures)
+
+end_time = time.time()
+
+
+# NUM_WORKERS = 10
+# with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+#     futures = {executor.submit(Scraper().sel_scrape, city.replace(' ', '%20')) for city in cities.split(',')}
+#     concurrent.futures.wait(futures)
+
+print("Time for Concurrent: %s secs" % (end_time - start_time))
 print('Done')
