@@ -7,15 +7,13 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
-from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
 import time
 from multiprocessing import Pool
 import multiprocessing
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
-import pickle
+import sqlite3
 
 
 class Scraper(object):
@@ -28,30 +26,32 @@ class Scraper(object):
         http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
                                     ca_certs=certifi.where())
         response = http.request('GET', url)
+
         try:
             result = response.data.decode()
+            soup = BeautifulSoup(result, "html.parser")
+            image = soup.find("img", class_= "main-photo is-hidden").get("src")
+            script = soup.find("script", class_="modelExport")
+            geo = re.compile('(?<=\_flickrModelRegistry":"photo-geo-models",)(.*?)(?=\,"accuracy")')
+            geo = [geo.split(':') for geo in geo.findall(str(script))[0].split(',')]
+            conn = sqlite3.connect('scraper')
+            c = conn.cursor()
+            #print(type(image), image, float(geo[1][1]), float(geo[2][1]))
+            if geo[0][1] == 'true':
+                try:
+                    query = "INSERT INTO images VALUES(\"%s\", %f, %f)" %(image, float(geo[1][1]), float(geo[2][1]))
+                    c.execute(query)
+                except Exception as e:
+                    print("database")
+                    print(e)
+            else:
+                query = "INSERT INTO images VALUES(\"%s\", null, null)" %(image)
+                c.execute(query)
+            conn.commit()
+            conn.close()
         except Exception as e:
-            print("Results no")
             print(e)
-        return result
-
-    def get_info_page(self, url):
-        with self.crawl(url) as source:
-            # soup = BeautifulSoup(fp, 'html.parser')
-            print(url)
-
-    def find_images(self):
-        scripts = self.write()
-        images = []
-        for script in scripts:
-            images_sub = re.findall('([-\w]+\.(?:jpg))', script)
-            images += images_sub
-        return images
-
-    def find_image_num(self):
-        images = self.find_images()
-        image_numbers = [image.split('_')[0] for image in images]
-        print(len(image_numbers))
+        return None
 
     def browser_scroll(self, browser):
         SCROLL_PAUSE_TIME = 0.75
@@ -90,15 +90,10 @@ class Scraper(object):
         links_list = self.sel_scrape(city)
         with concurrent.futures.ThreadPoolExecutor() as executor:
             try:
-                futures = [executor.submit(self.image_info, link) for link in links_list]
-                for future in as_completed(futures):
-                    print(future.result())
+                futures = [executor.submit(self.crawl, link) for link in links_list]
             except Exception as e:
                 print(e)
 
-    def image_info(self, link):
-        self.get_info_page(link)
-        return 1
 
     def get_link(self, element):
         return element.get_attribute('href')
@@ -110,12 +105,9 @@ print("Processing...")
 
 NUM_WORKERS = 4
 start_time = time.time()
-# scraped = Scraper()
-# print(scraped.scrape_cities(cities))
 with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
     futures = [executor.submit(Scraper().get_info_city, city) for city in cities]
     concurrent.futures.wait(futures)
-
 end_time = time.time()
 
 print("Time for Concurrent: %s secs" % (end_time - start_time))
