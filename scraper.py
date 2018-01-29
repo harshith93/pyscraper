@@ -26,7 +26,6 @@ class Scraper(object):
         http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
                                     ca_certs=certifi.where())
         response = http.request('GET', url)
-
         try:
             result = response.data.decode()
             soup = BeautifulSoup(result, "html.parser")
@@ -36,26 +35,24 @@ class Scraper(object):
             geo = [geo.split(':') for geo in geo.findall(str(script))[0].split(',')]
             conn = sqlite3.connect('scraper')
             c = conn.cursor()
-            #print(type(image), image, float(geo[1][1]), float(geo[2][1]))
             if geo[0][1] == 'true':
                 try:
                     query = "INSERT INTO images VALUES(\"%s\", %f, %f)" %(image, float(geo[1][1]), float(geo[2][1]))
                     c.execute(query)
                 except Exception as e:
-                    print("database")
                     print(e)
             else:
                 query = "INSERT INTO images VALUES(\"%s\", null, null)" %(image)
                 c.execute(query)
             conn.commit()
             conn.close()
+            return "Done"
         except Exception as e:
             print(e)
         return None
 
     def browser_scroll(self, browser):
         SCROLL_PAUSE_TIME = 0.75
-        # Get scroll height
         last_height = browser.execute_script("return document.body.scrollHeight")
         print(last_height)
         while True:
@@ -73,42 +70,46 @@ class Scraper(object):
                     break
             last_height = new_height
 
+    def start_scraping(self, cities):
+
+        #cities = input("Please enter the names of the cities separated by comma: ")
+        #cities = [city for city in cities.split(',')]
+        cities = [city.replace(' ', '%20') for city in cities]
+        NUM_WORKERS = 4
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                try:
+                    futures = [executor.submit(self.get_info_city, city) for city in cities]
+                    concurrent.futures.wait(futures)
+                    return True
+                except Exception as e:
+                    print(e)
+        except Exceptio as e:
+            print("scraping error")
+            print(e)
 
     def sel_scrape(self, city):
 
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         browser = webdriver.Chrome(chrome_options=chrome_options)
-        print("https://www.flickr.com/search/?text=" + city)
         browser.get("https://www.flickr.com/search/?text=" + city)
         self.browser_scroll(browser)
         elements = browser.find_elements_by_css_selector('.photo-list-photo-interaction .overlay')
-        return [element.get_attribute("href") for element in elements]
-
+        if len(elements) == 0:
+            return None
+        else:
+            return [element.get_attribute("href") for element in elements]
 
     def get_info_city(self, city):
         links_list = self.sel_scrape(city)
         with concurrent.futures.ThreadPoolExecutor() as executor:
             try:
                 futures = [executor.submit(self.crawl, link) for link in links_list]
+                concurrent.futures.wait(futures)
             except Exception as e:
                 print(e)
 
 
-    def get_link(self, element):
-        return element.get_attribute('href')
-
-cities = input("Please enter the names of the cities separated by comma: ")
-cities = [city for city in cities.split(',')]
-cities = [city.replace(' ', '%20') for city in cities]
-print("Processing...")
-
-NUM_WORKERS = 4
-start_time = time.time()
-with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-    futures = [executor.submit(Scraper().get_info_city, city) for city in cities]
-    concurrent.futures.wait(futures)
-end_time = time.time()
-
-print("Time for Concurrent: %s secs" % (end_time - start_time))
-print('Done')
+scraper = Scraper()
+scraper.start_scraping(['paris', 'rome', 'new york'])
