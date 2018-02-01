@@ -21,45 +21,13 @@ class Scraper(object):
     def __init__(self):
         super(Scraper, self).__init__()
 
-
-    def crawl(self, url):
-        http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
-                                    ca_certs=certifi.where())
-        response = http.request('GET', url)
-        try:
-            result = response.data.decode()
-            soup = BeautifulSoup(result, "html.parser")
-            image = soup.find("img", class_= "main-photo is-hidden").get("src")
-            script = soup.find("script", class_="modelExport")
-            geo = re.compile('(?<=\_flickrModelRegistry":"photo-geo-models",)(.*?)(?=\,"accuracy")')
-            geo = [geo.split(':') for geo in geo.findall(str(script))[0].split(',')]
-            conn = sqlite3.connect('scraper')
-            c = conn.cursor()
-            if geo[0][1] == 'true':
-                try:
-                    query = "INSERT INTO images VALUES(\"%s\", %f, %f)" %(image, float(geo[1][1]), float(geo[2][1]))
-                    c.execute(query)
-                except Exception as e:
-                    print(e)
-            else:
-                query = "INSERT INTO images VALUES(\"%s\", null, null)" %(image)
-                c.execute(query)
-            conn.commit()
-            conn.close()
-            return "Done"
-        except Exception as e:
-            print(e)
-        return None
-
     def browser_scroll(self, browser):
         SCROLL_PAUSE_TIME = 0.75
         last_height = browser.execute_script("return document.body.scrollHeight")
-        print(last_height)
         while True:
             browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(SCROLL_PAUSE_TIME)
             new_height = browser.execute_script("return document.body.scrollHeight")
-            print(new_height)
             if new_height == last_height:
                 try:
                     browser.find_element_by_css_selector('.infinite-scroll-load-more .alt').send_keys(Keys.SPACE)
@@ -70,23 +38,6 @@ class Scraper(object):
                     break
             last_height = new_height
 
-    def start_scraping(self, cities):
-
-        #cities = input("Please enter the names of the cities separated by comma: ")
-        #cities = [city for city in cities.split(',')]
-        cities = [city.replace(' ', '%20') for city in cities]
-        NUM_WORKERS = 4
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-                try:
-                    futures = [executor.submit(self.get_info_city, city) for city in cities]
-                    concurrent.futures.wait(futures)
-                    return True
-                except Exception as e:
-                    print(e)
-        except Exceptio as e:
-            print("scraping error")
-            print(e)
 
     def sel_scrape(self, city):
 
@@ -107,9 +58,47 @@ class Scraper(object):
             try:
                 futures = [executor.submit(self.crawl, link) for link in links_list]
                 concurrent.futures.wait(futures)
+                return True
             except Exception as e:
                 print(e)
+        return False
+
+    def crawl(self, url):
+        http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
+                                    ca_certs=certifi.where())
+        response = http.request('GET', url)
+        try:
+            result = response.data.decode()
+            soup = BeautifulSoup(result, "html.parser")
+            image = soup.find("img", class_= "main-photo is-hidden").get("src")
+            script = soup.find("script", class_="modelExport")
+            geo = re.compile('(?<=\_flickrModelRegistry":"photo-geo-models",)(.*?)(?=\,"accuracy")')
+            geo = [geo.split(':') for geo in geo.findall(str(script))[0].split(',')]
+            conn = sqlite3.connect('scraper')
+            c = conn.cursor()
+            if geo[0][1] == 'true':
+                query = "INSERT INTO images VALUES(\"%s\", %f, %f)" %(image, float(geo[1][1]), float(geo[2][1]))
+                c.execute(query)
+            else:
+                query = "INSERT INTO images VALUES(\"%s\", null, null)" %(image)
+                c.execute(query)
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(e)
+        return False
 
 
-scraper = Scraper()
-scraper.start_scraping(['paris', 'rome', 'new york'])
+    def start_scraping(self, cities):
+
+        cities = [city.replace(' ', '%20') for city in cities]
+        NUM_WORKERS = 4
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                futures = [executor.submit(self.get_info_city, city) for city in cities]
+                concurrent.futures.wait(futures)
+                return True
+        except Exception as e:
+            print(e)
+            return False

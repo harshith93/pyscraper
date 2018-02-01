@@ -21,6 +21,14 @@ class ScraperTest(unittest.TestCase):
         value = urls.start_scraping(cities)
         self.assertEqual(True, value)
 
+    def test_sel_scrape(self):
+        city = 'hjbdvjshvb'
+        photos = scraper.Scraper()
+        value = photos.sel_scrape(city)
+        self.assertEqual(None, value)
+
+    def test_
+
     def tearDown(self):
         self.driver.close()
 
